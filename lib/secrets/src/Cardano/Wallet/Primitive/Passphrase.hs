@@ -26,16 +26,21 @@ module Cardano.Wallet.Primitive.Passphrase
     , preparePassphrase
     , changePassphraseXPrv
     , checkAndChangePassphraseXPrv
+    , ErrChangePassphraseXPrv (..)
     , ErrWrongPassphrase (..)
     ) where
 
 import Cardano.Crypto.Wallet
     ( XPrv
+    , XPrvError
     , xPrvChangePass
     )
 import Cardano.Wallet.Primitive.Passphrase.Types
 import Cryptography.Core
     ( MonadRandom
+    )
+import Data.Bifunctor
+    ( first
     )
 import Prelude
 
@@ -44,6 +49,10 @@ import qualified Cardano.Wallet.Primitive.Passphrase.Legacy as Scrypt
 
 currentPassphraseScheme :: PassphraseScheme
 currentPassphraseScheme = EncryptWithPBKDF2
+
+data ErrChangePassphraseXPrv
+    = ErrChangePassphraseWrongPassphrase ErrWrongPassphrase
+    | ErrChangePassphraseInvalidRootKey XPrvError
 
 -- | Hashes a 'Passphrase' into a format that is suitable for storing on
 -- disk. It will always use the current scheme: pbkdf2-hmac-sha512.
@@ -93,7 +102,7 @@ changePassphraseXPrv
     -- ^ New passphrase
     -> XPrv
     -- ^ Key to re-encrypt
-    -> XPrv
+    -> Either XPrvError XPrv
 changePassphraseXPrv (oldS, old) (newS, new) = xPrvChangePass oldP newP
   where
     oldP = preparePassphrase oldS old
@@ -109,11 +118,13 @@ checkAndChangePassphraseXPrv
     -> XPrv
     -- ^ Key to re-encrypt
     -> m
-        (Either ErrWrongPassphrase ((PassphraseScheme, PassphraseHash), XPrv))
+        (Either ErrChangePassphraseXPrv ((PassphraseScheme, PassphraseHash), XPrv))
 checkAndChangePassphraseXPrv ((oldS, oldH), old) new key =
     case checkPassphrase oldS old oldH of
         Right () -> do
             (newS, newH) <- encryptPassphrase new
-            let newKey = changePassphraseXPrv (oldS, old) (newS, new) key
-            pure $ Right ((newS, newH), newKey)
-        Left e -> pure $ Left e
+            pure
+                $ first ErrChangePassphraseInvalidRootKey
+                $ fmap ((newS, newH),)
+                $ changePassphraseXPrv (oldS, old) (newS, new) key
+        Left e -> pure $ Left $ ErrChangePassphraseWrongPassphrase e

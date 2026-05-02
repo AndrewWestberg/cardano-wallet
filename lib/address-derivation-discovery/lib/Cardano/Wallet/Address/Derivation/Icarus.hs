@@ -150,6 +150,9 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
+unsafeCrypto :: Show err => String -> Either err a -> a
+unsafeCrypto context = either (error . ((context <> ": ") <>) . show) id
+
 -- | A cryptographic key for sequential-scheme address derivation, with
 -- phantom-types to disambiguate key types.
 --
@@ -324,7 +327,8 @@ unsafeGenerateKeyFromSeed
     -- ^ Master encryption passphrase
     -> IcarusKey depth XPrv
 unsafeGenerateKeyFromSeed (SomeMnemonic mw) (Passphrase pwd) =
-    IcarusKey $ generateNew validSeed (mempty :: ByteString) pwd
+    IcarusKey $ unsafeCrypto "unsafeGenerateKeyFromSeed"
+        $ generateNew validSeed (mempty :: ByteString) pwd
   where
     validSeed =
         if BA.length seed >= minSeedLengthBytes && BA.length seed <= 255
@@ -352,13 +356,16 @@ instance HardDerivation IcarusKey where
             let
                 purposeXPrv =
                     -- lvl1 derivation; hardened derivation of purpose'
-                    deriveXPrv DerivationScheme2 pwd rootXPrv (getIndex purposeBIP44)
+                    unsafeCrypto "deriveAccountPrivateKey/purpose"
+                        $ deriveXPrv DerivationScheme2 pwd rootXPrv (getIndex purposeBIP44)
                 coinTypeXPrv =
                     -- lvl2 derivation; hardened derivation of coin_type'
-                    deriveXPrv DerivationScheme2 pwd purposeXPrv (getIndex coinTypeAda)
+                    unsafeCrypto "deriveAccountPrivateKey/coinType"
+                        $ deriveXPrv DerivationScheme2 pwd purposeXPrv (getIndex coinTypeAda)
                 acctXPrv =
                     -- lvl3 derivation; hardened derivation of account' index
-                    deriveXPrv DerivationScheme2 pwd coinTypeXPrv accIx
+                    unsafeCrypto "deriveAccountPrivateKey/account"
+                        $ deriveXPrv DerivationScheme2 pwd coinTypeXPrv accIx
             in
                 IcarusKey acctXPrv
 
@@ -372,10 +379,12 @@ instance HardDerivation IcarusKey where
                     fromIntegral $ fromEnum role
                 changeXPrv =
                     -- lvl4 derivation; soft derivation of change chain
-                    deriveXPrv DerivationScheme2 pwd accXPrv changeCode
+                    unsafeCrypto "deriveAddressPrivateKey/change"
+                        $ deriveXPrv DerivationScheme2 pwd accXPrv changeCode
                 addrXPrv =
                     -- lvl5 derivation; soft derivation of address index
-                    deriveXPrv DerivationScheme2 pwd changeXPrv addrIx
+                    unsafeCrypto "deriveAddressPrivateKey/address"
+                        $ deriveXPrv DerivationScheme2 pwd changeXPrv addrIx
             in
                 IcarusKey addrXPrv
 

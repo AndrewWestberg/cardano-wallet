@@ -296,6 +296,9 @@ import qualified Cardano.Wallet.Primitive.Ledger.Shelley as Compatibility
 import qualified Cardano.Wallet.Primitive.Types.AssetId as AssetId
 import qualified Cardano.Wallet.Primitive.Types.TokenMap as TokenMap
 import qualified Data.ByteString as BS
+
+unsafeCrypto :: Show err => String -> Either err a -> a
+unsafeCrypto context = either (error . ((context <> ": ") <>) . show) id
 import qualified Data.Foldable as F
 import qualified Data.List as L
 import qualified Data.Map as Map
@@ -1218,6 +1221,7 @@ mkShelleyWitness body key =
     unencrypt (xprv, pwd) =
         Cardano.WitnessPaymentExtendedKey
             $ Cardano.PaymentExtendedSigningKey
+            $ unsafeCrypto "mkShelleyWitness/unencrypt"
             $ Crypto.HD.xPrvChangePass pwd BS.empty xprv
 
 certToLedger
@@ -1259,6 +1263,7 @@ mkByronWitness
 
         unencrypt (xprv, pwd) =
             CC.SigningKey
+                $ unsafeCrypto "mkByronWitness/unencrypt"
                 $ Crypto.HD.xPrvChangePass pwd BS.empty xprv
 
         addrAttr =

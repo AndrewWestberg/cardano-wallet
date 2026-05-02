@@ -339,6 +339,14 @@ instance IsServerError ErrWithRootKey where
                     , "to encrypt the root private key of the given wallet: "
                     , toText wid
                     ]
+        ErrWithRootKeyInvalidRootKey wid err ->
+            apiError err500 NoRootKey
+                $ mconcat
+                    [ "The stored root private key for wallet "
+                    , toText wid
+                    , " could not be decrypted or validated: "
+                    , showT err
+                    ]
         ErrWithRootKeyWrongMnemonic wid ->
             apiError err403 WrongMnemonic
                 $ mconcat

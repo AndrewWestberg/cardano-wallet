@@ -77,6 +77,9 @@ import Numeric.Natural
     )
 import Prelude
 
+unsafeCrypto :: Show err => String -> Either err a -> a
+unsafeCrypto context = either (error . ((context <> ": ") <>) . show) id
+
 import qualified Data.Interval as I
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
@@ -106,13 +109,16 @@ derivePolicyPrivateKey (Passphrase pwd) rootXPrv (Index policyIx) =
     let
         purposeXPrv =
             -- lvl1 derivation; hardened derivation of purpose'
-            deriveXPrv DerivationScheme2 pwd rootXPrv (getIndex purposeCIP1855)
+            unsafeCrypto "derivePolicyPrivateKey/purpose"
+                $ deriveXPrv DerivationScheme2 pwd rootXPrv (getIndex purposeCIP1855)
         coinTypeXPrv =
             -- lvl2 derivation; hardened derivation of coin_type'
-            deriveXPrv DerivationScheme2 pwd purposeXPrv (getIndex coinTypeAda)
+            unsafeCrypto "derivePolicyPrivateKey/coinType"
+                $ deriveXPrv DerivationScheme2 pwd purposeXPrv (getIndex coinTypeAda)
     in
         -- lvl3 derivation; hardened derivation of policy' index
-        deriveXPrv DerivationScheme2 pwd coinTypeXPrv policyIx
+        unsafeCrypto "derivePolicyPrivateKey/policy"
+            $ deriveXPrv DerivationScheme2 pwd coinTypeXPrv policyIx
 
 policyDerivationPath
     :: NonEmpty DerivationIndex

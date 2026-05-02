@@ -17,6 +17,7 @@ module Cardano.Wallet.Address.Keys.WalletKey
     , digest
     , publicKey
     , changePassphraseNew
+    , rewrapToV2
     , hashVerificationKey
     , AfterByron
     , afterByron
@@ -26,12 +27,16 @@ import Cardano.Address.Derivation
     ( XPrv
     , xpubPublicKey
     )
+import Cardano.Crypto.Wallet
+    ( XPrvError
+    )
 import Cardano.Address.KeyHash
     ( KeyHash (KeyHash)
     , KeyRole
     )
 import Cardano.Crypto.Wallet
     ( XPub
+    , rewrapXPrvToV2
     , toXPub
     , unXPub
     )
@@ -93,18 +98,39 @@ changePassphraseNew
     -- ^ New passphrase.
     -> key depth XPrv
     -- ^ Old private key.
-    -> key depth XPrv
+    -> Either XPrvError (key depth XPrv)
 changePassphraseNew = \case
     ByronKeyS -> \old new key ->
-        let masterKey = changePassphraseXPrv old new $ key ^. byronKey
-        in  ByronKey
+        fmap
+            (\masterKey -> ByronKey
                 { getKey = masterKey
                 , derivationPath = derivationPath key
                 , payloadPassphrase = hdPassphrase (toXPub masterKey)
                 }
-    IcarusKeyS -> \old new -> over icarusKey $ changePassphraseXPrv old new
-    ShelleyKeyS -> \old new -> over shelleyKey $ changePassphraseXPrv old new
-    SharedKeyS -> \old new -> over sharedKey $ changePassphraseXPrv old new
+            )
+            (changePassphraseXPrv old new $ key ^. byronKey)
+    IcarusKeyS -> \old new -> fmap IcarusKey . changePassphraseXPrv old new . view icarusKey
+    ShelleyKeyS -> \old new -> fmap ShelleyKey . changePassphraseXPrv old new . view shelleyKey
+    SharedKeyS -> \old new -> fmap SharedKey . changePassphraseXPrv old new . view sharedKey
+
+rewrapToV2
+    :: KeyFlavorS key
+    -> Passphrase "encryption"
+    -> key depth XPrv
+    -> Either XPrvError (key depth XPrv)
+rewrapToV2 = \case
+    ByronKeyS -> \pwd key ->
+        fmap
+            (\masterKey -> ByronKey
+                { getKey = masterKey
+                , derivationPath = derivationPath key
+                , payloadPassphrase = hdPassphrase (toXPub masterKey)
+                }
+            )
+            (rewrapXPrvToV2 pwd $ key ^. byronKey)
+    IcarusKeyS -> \pwd -> fmap IcarusKey . rewrapXPrvToV2 pwd . view icarusKey
+    ShelleyKeyS -> \pwd -> fmap ShelleyKey . rewrapXPrvToV2 pwd . view shelleyKey
+    SharedKeyS -> \pwd -> fmap SharedKey . rewrapXPrvToV2 pwd . view sharedKey
 
 -- | Extract the public key part of a private key.
 publicKey

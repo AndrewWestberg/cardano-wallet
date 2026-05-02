@@ -297,7 +297,11 @@ import Cardano.Balance.Tx.Tx
     ( toRecentEraGADT
     )
 import Cardano.Crypto.Wallet
-    ( toXPub
+    ( XPrvError
+    , XPrvFormat (LegacyV1)
+    , toXPub
+    , validateXPrvPassphrase
+    , xPrvFormat
     )
 import Cardano.Ledger.Api
     ( EraTxBody (allInputsTxBodyF)
@@ -395,6 +399,7 @@ import Cardano.Wallet.Address.Keys.WalletKey
     , getRawKey
     , hashVerificationKey
     , liftRawKey
+    , rewrapToV2
     )
 import Cardano.Wallet.Address.MaybeLight
     ( MaybeLight
@@ -1260,12 +1265,15 @@ updateWalletPassphraseWithOldPassphrase wF ctx wid (old, new) =
             -- This use 'EncryptWithPBKDF2', regardless of the passphrase
             -- current scheme, we'll re-encrypt it using the current scheme,
             -- always.
-            let xprv' =
-                    changePassphraseNew
-                        (keyOfWallet wF)
-                        (scheme, old)
-                        (currentPassphraseScheme, new)
-                        xprv
+            xprv' <- withExceptT
+                (ErrUpdatePassphraseWithRootKey . ErrWithRootKeyInvalidRootKey wid)
+                . ExceptT
+                . pure
+                $ changePassphraseNew
+                    (keyOfWallet wF)
+                    (scheme, old)
+                    (currentPassphraseScheme, new)
+                    xprv
             lift $ attachPrivateKeyFromPwd ctx (xprv', new)
   where
     db = ctx ^. typed
@@ -3692,14 +3700,15 @@ attachPrivateKey db pk scheme =
 -- @@@
 withRootKey
     :: forall s e a
-     . DBLayer IO s
+     . WalletFlavor s
+    => DBLayer IO s
     -> WalletId
     -> Passphrase "user"
     -> (ErrWithRootKey -> e)
     -> (KeyOf s 'RootK XPrv -> PassphraseScheme -> ExceptT e IO a)
     -> ExceptT e IO a
 withRootKey DBLayer{..} wid pwd embed action = do
-    (xprv, scheme) <- withExceptT embed . ExceptT . atomically $ do
+    (xprv, hpwd, scheme) <- withExceptT embed . ExceptT . atomically $ do
         wMetadata <- readWalletMeta walletState
         let mScheme = passphraseScheme <$> passphraseInfo wMetadata
         mXPrv <- readPrivateKey walletState
@@ -3707,9 +3716,29 @@ withRootKey DBLayer{..} wid pwd embed action = do
             (Just (xprv, hpwd), Just scheme) ->
                 case checkPassphrase scheme pwd hpwd of
                     Left err -> Left $ ErrWithRootKeyWrongPassphrase wid err
-                    Right _ -> Right (xprv, scheme)
+                    Right _ -> Right (xprv, hpwd, scheme)
             _ -> Left $ ErrWithRootKeyNoRootKey wid
-    action xprv scheme
+    let kF = keyFlavorFromState @s
+        encPwd = preparePassphrase scheme pwd
+        rootXPrv = getRawKey kF xprv
+    withExceptT embed . ExceptT . pure
+        $ case validateXPrvPassphrase encPwd rootXPrv of
+            Left err -> Left $ ErrWithRootKeyInvalidRootKey wid err
+            Right () -> Right ()
+
+    xprv' <- case xPrvFormat rootXPrv of
+        LegacyV1 -> do
+            migrated <- withExceptT
+                embed
+                . ExceptT
+                . pure
+                $ first (ErrWithRootKeyInvalidRootKey wid)
+                $ rewrapToV2 kF encPwd xprv
+            lift $ atomically $ putPrivateKey walletState (RootCredentials migrated hpwd)
+            pure migrated
+        _ -> pure xprv
+
+    action xprv' scheme
 
 -- | Sign an arbitrary transaction metadata object with a private key belonging
 -- to the wallet's account.
@@ -4119,6 +4148,7 @@ newtype ErrUpdatePassphrase
 data ErrWithRootKey
     = ErrWithRootKeyNoRootKey WalletId
     | ErrWithRootKeyWrongPassphrase WalletId ErrWrongPassphrase
+    | ErrWithRootKeyInvalidRootKey WalletId XPrvError
     | ErrWithRootKeyWrongMnemonic WalletId
     deriving (Show, Eq)
 

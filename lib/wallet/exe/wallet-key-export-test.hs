@@ -135,6 +135,9 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
+unsafeCrypto :: Show err => Either err a -> a
+unsafeCrypto = either (error . show) id
+
 main :: IO ()
 main = do
     exe <-
@@ -211,7 +214,8 @@ prop_shelleyRoundtrip exe =
                     expected =
                         B16.encode
                             ( unXPrv
-                                ( xPrvChangePass
+                                ( unsafeCrypto
+                                    $ xPrvChangePass
                                     encPass
                                     emptyPass
                                     xprv
@@ -249,7 +253,8 @@ prop_byronRoundtrip exe =
                     expected =
                         B16.encode
                             ( unXPrv
-                                ( xPrvChangePass
+                                ( unsafeCrypto
+                                    $ xPrvChangePass
                                     encPass
                                     emptyPass
                                     xprv

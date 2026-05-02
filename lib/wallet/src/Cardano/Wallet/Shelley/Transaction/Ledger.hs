@@ -238,6 +238,9 @@ import qualified Cardano.Wallet.Primitive.Types.TokenMap as TokenMap
 import qualified Cardano.Wallet.Primitive.Types.Tx.Tx as W
 import qualified Cardano.Wallet.Read as Read
 import qualified Data.ByteString as BS
+
+unsafeCrypto :: Show err => String -> Either err a -> a
+unsafeCrypto context = either (error . ((context <> ": ") <>) . show) id
 import qualified Data.Foldable as F
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence.Strict as StrictSeq
@@ -820,7 +823,8 @@ mkShelleyWitnessLedger _era body (xprv, pwd) =
     WitVKey vkey sig
   where
     xprv' =
-        Crypto.HD.xPrvChangePass pwd BS.empty xprv
+        unsafeCrypto "mkShelleyWitnessLedger/unencrypt"
+            $ Crypto.HD.xPrvChangePass pwd BS.empty xprv
     bodyHash =
         hashToBytes
             $ extractHash
@@ -868,6 +872,7 @@ mkByronWitnessLedger _era body net addr (xprv, pwd) =
         extractHash $ hashAnnotated @_ @EraIndependentTxBody body
     signingKey =
         CC.SigningKey
+            $ unsafeCrypto "mkByronWitnessLedger/unencrypt"
             $ Crypto.HD.xPrvChangePass pwd BS.empty xprv
     addrAttr =
         Byron.mkAttributes

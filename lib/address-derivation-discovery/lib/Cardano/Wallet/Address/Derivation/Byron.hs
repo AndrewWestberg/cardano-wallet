@@ -117,6 +117,9 @@ import qualified Codec.CBOR.Write as CBOR
 import qualified Cryptography.KDF.PBKDF2 as PBKDF2
 import qualified Data.ByteArray as BA
 
+unsafeCrypto :: Show err => String -> Either err a -> a
+unsafeCrypto context = either (error . ((context <> ": ") <>) . show) id
+
 {-------------------------------------------------------------------------------
                                    Key Types
 -------------------------------------------------------------------------------}
@@ -219,7 +222,8 @@ unsafeGenerateKeyFromSeed derivationPath (SomeMnemonic mw) (Passphrase pwd) =
         , payloadPassphrase = hdPassphrase (toXPub masterKey)
         }
   where
-    masterKey = generate (hashSeed validSeed) pwd
+    masterKey = unsafeCrypto "unsafeGenerateKeyFromSeed"
+        $ generate (hashSeed validSeed) pwd
     seed = entropyToBytes $ mnemonicToEntropy mw
     validSeed =
         if BA.length seed >= minSeedLengthBytes && BA.length seed <= 255
@@ -323,7 +327,8 @@ deriveAccountPrivateKey
     -> ByronKey 'AccountK XPrv
 deriveAccountPrivateKey (Passphrase pwd) masterKey idx@(Index accIx) =
     ByronKey
-        { getKey = deriveXPrv DerivationScheme1 pwd (getKey masterKey) accIx
+        { getKey = unsafeCrypto "deriveAccountPrivateKey"
+            $ deriveXPrv DerivationScheme1 pwd (getKey masterKey) accIx
         , derivationPath = idx
         , payloadPassphrase = payloadPassphrase masterKey
         }
@@ -342,7 +347,8 @@ deriveAddressPrivateKey
     -> ByronKey 'CredFromKeyK XPrv
 deriveAddressPrivateKey (Passphrase pwd) accountKey idx@(Index addrIx) =
     ByronKey
-        { getKey = deriveXPrv DerivationScheme1 pwd (getKey accountKey) addrIx
+        { getKey = unsafeCrypto "deriveAddressPrivateKey"
+            $ deriveXPrv DerivationScheme1 pwd (getKey accountKey) addrIx
         , derivationPath = (derivationPath accountKey, idx)
         , payloadPassphrase = payloadPassphrase accountKey
         }

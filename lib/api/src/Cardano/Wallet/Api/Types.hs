@@ -2073,8 +2073,7 @@ instance FromText (ApiT XPrv) where
                 $ TextDecodingError
                 $ unwords
                     [ "Invalid encrypted root private key:"
-                    , "expecting a hex-encoded value that is 128 "
-                    , "bytes in length."
+                    , "expecting a valid hex-encoded encrypted root private key."
                     ]
 
 instance {-# OVERLAPPING #-} Show (ApiT XPrv) where

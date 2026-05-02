@@ -126,7 +126,11 @@ run dbPath walletId = do
     -- Decrypt: change passphrase from user's to empty
     let prepared = preparePassphrase scheme userPass
         emptyPass = mempty :: Passphrase "encryption"
-        decrypted = xPrvChangePass prepared emptyPass xprv
+    decrypted <- case xPrvChangePass prepared emptyPass xprv of
+        Right key -> pure key
+        Left err -> do
+            putStrLn $ "Error: failed to decrypt root private key: " <> show err
+            exitFailure
 
     -- Output raw hex (128 bytes = 256 hex chars)
     let hexKey = B16.encode (unXPrv decrypted)

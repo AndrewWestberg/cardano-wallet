@@ -142,6 +142,9 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.List.NonEmpty as NE
 
+unsafeCrypto :: Show err => String -> Either err a -> a
+unsafeCrypto context = either (error . ((context <> ": ") <>) . show) id
+
 {-------------------------------------------------------------------------------
                             Sequential Derivation
 -------------------------------------------------------------------------------}
@@ -196,10 +199,11 @@ unsafeGenerateKeyFromSeedShelley
     -> Passphrase "encryption"
     -> XPrv
 unsafeGenerateKeyFromSeedShelley (root, m2nd) pwd =
-    generateNew
-        validSeed
-        (maybe mempty mnemonicToBytes m2nd)
-        (unPassphrase pwd)
+    unsafeCrypto "unsafeGenerateKeyFromSeedShelley"
+        $ generateNew
+            validSeed
+            (maybe mempty mnemonicToBytes m2nd)
+            (unPassphrase pwd)
   where
     mnemonicToBytes (SomeMnemonic mw) = entropyToBytes $ mnemonicToEntropy mw
     seed = mnemonicToBytes root
@@ -223,13 +227,16 @@ deriveAccountPrivateKeyShelley purpose (Passphrase pwd) rootXPrv (Index accIx) =
     let
         purposeXPrv =
             -- lvl1 derivation; hardened derivation of purpose'
-            deriveXPrv DerivationScheme2 pwd rootXPrv (getIndex purpose)
+            unsafeCrypto "deriveAccountPrivateKeyShelley/purpose"
+                $ deriveXPrv DerivationScheme2 pwd rootXPrv (getIndex purpose)
         coinTypeXPrv =
             -- lvl2 derivation; hardened derivation of coin_type'
-            deriveXPrv DerivationScheme2 pwd purposeXPrv (getIndex coinTypeAda)
+            unsafeCrypto "deriveAccountPrivateKeyShelley/coinType"
+                $ deriveXPrv DerivationScheme2 pwd purposeXPrv (getIndex coinTypeAda)
     in
         -- lvl3 derivation; hardened derivation of account' index
-        deriveXPrv DerivationScheme2 pwd coinTypeXPrv accIx
+        unsafeCrypto "deriveAccountPrivateKeyShelley/account"
+            $ deriveXPrv DerivationScheme2 pwd coinTypeXPrv accIx
 
 deriveAddressPrivateKeyShelley
     :: Enum a
@@ -244,10 +251,12 @@ deriveAddressPrivateKeyShelley (Passphrase pwd) accXPrv role (Index addrIx) =
             fromIntegral $ fromEnum role
         changeXPrv =
             -- lvl4 derivation; soft derivation of change chain
-            deriveXPrv DerivationScheme2 pwd accXPrv changeCode
+            unsafeCrypto "deriveAddressPrivateKeyShelley/change"
+                $ deriveXPrv DerivationScheme2 pwd accXPrv changeCode
     in
         -- lvl5 derivation; soft derivation of address index
-        deriveXPrv DerivationScheme2 pwd changeXPrv addrIx
+        unsafeCrypto "deriveAddressPrivateKeyShelley/address"
+            $ deriveXPrv DerivationScheme2 pwd changeXPrv addrIx
 
 deriveAddressPublicKeyShelley
     :: Enum a
