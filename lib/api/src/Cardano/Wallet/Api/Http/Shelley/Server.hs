@@ -582,9 +582,6 @@ import Cardano.Wallet.DB
 import Cardano.Wallet.DB.Sqlite.Types
     ( DappSubmissionStatusEnum (..)
     )
-import Cardano.Wallet.DB.Store.Submissions.Operations
-    ( DurableSubmission (..)
-    )
 import Cardano.Wallet.DRep.Layer
     ( DRepInfo (..)
     , DRepLayer
@@ -1017,7 +1014,6 @@ import qualified Cardano.Wallet.Api.Types as Api
 import qualified Cardano.Wallet.Api.Types.Amount as ApiAmount
 import qualified Cardano.Wallet.Api.Types.WalletAssets as ApiWalletAssets
 import qualified Cardano.Wallet.DB as W
-import qualified Cardano.Wallet.DB.Sqlite.Types as Sql
 import qualified Cardano.Wallet.DRep.Layer as DRepLayer
 import qualified Cardano.Wallet.Delegation as WD
 import qualified Cardano.Wallet.IO.Delegation as IODeleg
@@ -5910,7 +5906,7 @@ postDappSubmission
     -> ApiT WalletId
     -> ApiDappSubmissionRequest
     -> Handler ApiDappSubmissionResponse
-postDappSubmission ctx wid@(ApiT walletId)
+postDappSubmission ctx (ApiT walletId)
     ApiDappSubmissionRequest{network = requestNetwork, transaction = ApiDappHex bytes} = do
         expectedNetwork <- either throwDapp pure $ configuredNetwork @n ctx
         unless (requestNetwork == expectedNetwork)
@@ -6145,8 +6141,8 @@ stakeRegistrationEffects stakeHash =
             | Crypto.hashToBytes hash == stakeHash -> Just W.DeregisterStakeKey
         _ -> Nothing
 
--- | Dormant CIP-8 data signing. The request's raw address selects the key;
--- caller supplied derivation paths and metadata encodings are deliberately absent.
+-- | CIP-8 data signing. The request's raw address selects the key; caller
+-- supplied derivation paths and metadata encodings are deliberately absent.
 postDappDataSignature
     :: forall n
      . HasSNetworkId n

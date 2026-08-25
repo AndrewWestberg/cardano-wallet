@@ -74,7 +74,6 @@ import Control.Lens
 import Control.Monad
     ( forM_
     , unless
-    , when
     )
 import Control.Monad.Class.MonadThrow
     ( throwIO
@@ -223,7 +222,7 @@ insertOrClassifyDurableSubmission submission@DurableSubmission{..} inputs = do
                 claimed <- fmap concat $ mapM claimOwners requestedInputs
                 if null claimed
                     then do
-                        insert
+                        _ <- insert
                             $ DappSubmission
                                 durableWalletId
                                 durableTxId
@@ -464,7 +463,7 @@ mkStoreAnySubmissions
     => WalletId
     -> UpdateStore (SqlPersistT IO) d
 mkStoreAnySubmissions wid =
-    mkUpdateStore load write update
+    mkUpdateStore load write updateStore
   where
     load = do
         slots <- selectList [SubmissionsSlotsWallet ==. wid] []
@@ -481,7 +480,7 @@ mkStoreAnySubmissions wid =
                     $ SomeException
                     $ ErrMoreThanOneSubmissionsSlotsDefinedForWallet wid
     write = syncSubmissions wid (Sbm.Submissions mempty 0 0)
-    update = updateLoad load throwIO $ \base delta ->
+    updateStore = updateLoad load throwIO $ \base delta ->
         syncSubmissions wid base $ apply delta base
 
 mkTransactions :: [Entity Submissions] -> Map TxId TxSubmissionsStatus

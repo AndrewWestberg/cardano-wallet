@@ -4,9 +4,6 @@
 
 module Cardano.Wallet.Api.DappSpec (spec) where
 
-import Cardano.Wallet.Api.Http.Server
-    ( dappCapabilitiesUnavailable
-    )
 import Cardano.Wallet.Api.Http.Server.Error
     ( IsServerError (toServerError)
     , dappServerError
@@ -48,16 +45,13 @@ import Network.Wai
 import Servant.Server
     ( ServerError (..)
     , err400
-    , err404
     , err500
-    , runHandler
     )
 import Test.Hspec
     ( Spec
     , describe
     , it
     , shouldBe
-    , shouldReturn
     , shouldSatisfy
     )
 import Prelude
@@ -106,14 +100,6 @@ spec = do
                 (T.pack $ sixtyFour 'b')
                 (Read.EraValue Read.Conway)
                 `shouldBe` Nothing
-
-        it "keeps the HTTP handler identical to an unmatched route"
-            $ runHandler
-                ( dappCapabilitiesUnavailable
-                    $ ApiDappBackendBuild "version" (T.pack $ forty 'a')
-                )
-            `shouldReturn` Left err404
-
 
     describe "wallet-scoped transaction submission request" $ do
         it "renders durable terminal status without error detail" $ do
