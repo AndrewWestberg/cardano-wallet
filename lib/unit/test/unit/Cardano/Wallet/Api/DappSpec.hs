@@ -8,6 +8,9 @@ import Cardano.Wallet.Api.Http.Server.Error
     ( IsServerError (toServerError)
     , dappServerError
     )
+import Cardano.Wallet.Application.Server
+    ( isSensitiveDappRoute
+    )
 import Cardano.Wallet.Api.Types.Dapp
     ( ApiDappBackendBuild (..)
     , ApiDappCapabilities
@@ -100,6 +103,34 @@ spec = do
                 (T.pack $ sixtyFour 'b')
                 (Read.EraValue Read.Conway)
                 `shouldBe` Nothing
+
+    describe "dApp API log privacy" $ do
+        mapM_
+            ( \route ->
+                it ("suppresses details for " <> T.unpack route)
+                    $ mapM_
+                        ( \prefix ->
+                            isSensitiveDappRoute
+                                defaultRequest
+                                    { pathInfo =
+                                        prefix <> ["wallet", route]
+                                    }
+                                `shouldBe` True
+                        )
+                        [["v2", "wallets"], ["wallets"]]
+            )
+            [ "transaction-context"
+            , "transaction-submission"
+            , "transaction-witnesses"
+            , "data-signatures"
+            , "cip95-key-state"
+            ]
+        it "does not suppress unrelated wallet routes"
+            $ isSensitiveDappRoute
+                defaultRequest
+                    { pathInfo = ["v2", "wallets", "wallet", "transactions"]
+                    }
+            `shouldBe` False
 
     describe "wallet-scoped transaction submission request" $ do
         it "renders durable terminal status without error detail" $ do

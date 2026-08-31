@@ -5,6 +5,7 @@ module Cardano.Wallet.Application.Server
     ( Listen (..)
     , walletListenFromEnv
     , start
+    , isSensitiveDappRoute
     , withListeningSocket
     , ListenError (..)
 
@@ -141,12 +142,20 @@ start settings tr tlsConfig socket application = do
         , "mnemonic_second_factor"
         ]
 
-    isSensitiveDappRoute request = case Network.Wai.pathInfo request of
-        "v2" : "wallets" : _walletId : "transaction-context" : _ -> True
-        "v2" : "wallets" : _walletId : "transaction-submission" : _ -> True
-        "wallets" : _walletId : "transaction-context" : _ -> True
-        "wallets" : _walletId : "transaction-submission" : _ -> True
-        _ -> False
+isSensitiveDappRoute :: Network.Wai.Request -> Bool
+isSensitiveDappRoute request = case Network.Wai.pathInfo request of
+    "v2" : "wallets" : _walletId : route : _ -> sensitive route
+    "wallets" : _walletId : route : _ -> sensitive route
+    _ -> False
+  where
+    sensitive route =
+        route
+            `elem` [ "transaction-context"
+                   , "transaction-submission"
+                   , "transaction-witnesses"
+                   , "data-signatures"
+                   , "cip95-key-state"
+                   ]
 
 -- | Run an action with a TCP socket bound to a port specified by the `Listen`
 -- parameter.
