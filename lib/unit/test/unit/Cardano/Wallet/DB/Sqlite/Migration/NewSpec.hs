@@ -20,6 +20,7 @@ import Cardano.Wallet.DB.Migration
 import Cardano.Wallet.DB.Sqlite.Migration.New
     ( latestVersion
     , newMigrationInterface
+    , runNewStyleMigrations
     )
 import Control.Tracer
     ( nullTracer
@@ -31,17 +32,20 @@ import Data.Text
     ( Text
     )
 import System.Directory
-    ( listDirectory
+    ( copyFile
+    , listDirectory
     )
 import System.IO.Temp
     ( withSystemTempDirectory
     )
 import Test.Hspec
     ( Spec
+    , anyException
     , describe
     , it
     , shouldBe
     , shouldReturn
+    , shouldThrow
     )
 import Test.Hspec.Extra
     ( itWithDiagnosticTimeout
@@ -53,6 +57,8 @@ import Prelude hiding
     ( (.)
     )
 
+import qualified Data.ByteString as BS
+import qualified Data.Text as T
 import qualified Database.Persist.Sqlite as Sqlite
 
 {-----------------------------------------------------------------------------
@@ -63,6 +69,26 @@ spec = do
     describe "new migrations" $ do
         it "targets durable-submission schema version six"
             $ latestVersion `shouldBe` Version 6
+        it "backs up V5 and commits the durable-submission V6 schema" $
+            withSystemTempDirectory "test" $ \dir -> do
+                let dbf = dir <> "/wallet.sqlite"
+                createV5Database dbf False
+                v5 <- BS.readFile dbf
+                runNewStyleMigrations nullTracer dbf
+                schemaVersion dbf `shouldReturn` 6
+                durableSubmissionTableCount dbf `shouldReturn` 1
+                BS.readFile (dbf <> ".v5.bak") `shouldReturn` v5
+        it "rolls back malformed V5 submissions and leaves a restorable backup" $
+            withSystemTempDirectory "test" $ \dir -> do
+                let dbf = dir <> "/wallet.sqlite"
+                createV5Database dbf True
+                v5 <- BS.readFile dbf
+                runNewStyleMigrations nullTracer dbf `shouldThrow` anyException
+                schemaVersion dbf `shouldReturn` 5
+                durableSubmissionTableCount dbf `shouldReturn` 0
+                BS.readFile (dbf <> ".v5.bak") `shouldReturn` v5
+                copyFile (dbf <> ".v5.bak") dbf
+                schemaVersion dbf `shouldReturn` 5
         itWithDiagnosticTimeout
             60
             "handles backupDatabaseFile and withDatabaseFile"
@@ -143,3 +169,42 @@ createTable =
 populateTable :: Text
 populateTable =
     "INSERT INTO test (name) VALUES ('hello')"
+
+createV5Database :: FilePath -> Bool -> IO ()
+createV5Database dbf malformedLiveSubmission =
+    Sqlite.runSqlite (T.pack dbf) $ do
+        Sqlite.rawExecute
+            "CREATE TABLE database_schema_version (name TEXT PRIMARY KEY, version INTEGER NOT NULL)"
+            []
+        Sqlite.rawExecute
+            "INSERT INTO database_schema_version (name, version) VALUES ('schema', 5)"
+            []
+        Sqlite.rawExecute "CREATE TABLE wallet (wallet_id TEXT PRIMARY KEY)" []
+        Sqlite.rawExecute
+            "CREATE TABLE submissions (wallet_id TEXT NOT NULL, tx_id TEXT NOT NULL, tx BLOB NOT NULL, expiration INTEGER NULL, status INTEGER NOT NULL, acceptance INTEGER NULL)"
+            []
+        if malformedLiveSubmission
+            then do
+                Sqlite.rawExecute "INSERT INTO wallet (wallet_id) VALUES ('00')" []
+                Sqlite.rawExecute
+                    "INSERT INTO submissions (wallet_id, tx_id, tx, expiration, status, acceptance) VALUES ('00', '00', X'00', NULL, 0, NULL)"
+                    []
+            else pure ()
+
+schemaVersion :: FilePath -> IO Int
+schemaVersion dbf = do
+    [Sqlite.Single version] <-
+        Sqlite.runSqlite (T.pack dbf)
+            $ Sqlite.rawSql
+                "SELECT version FROM database_schema_version WHERE name = 'schema'"
+                []
+    pure version
+
+durableSubmissionTableCount :: FilePath -> IO Int
+durableSubmissionTableCount dbf = do
+    [Sqlite.Single count] <-
+        Sqlite.runSqlite (T.pack dbf)
+            $ Sqlite.rawSql
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'dapp_submission'"
+                []
+    pure count
