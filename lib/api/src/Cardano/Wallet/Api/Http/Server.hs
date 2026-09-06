@@ -422,7 +422,7 @@ server byron icarus shelley multisig spl drepLayer ntp blockchainSource dappBack
         ( \wid -> \case
             ApiSelectForPayment ascp ->
                 selectCoins shelley (delegationAddressS @n) wid ascp
-            ApiSelectForDelegation (ApiSelectCoinsAction action) ->
+            ApiSelectForDelegation (ApiSelectCoinsAction action reservedInputs) ->
                 case action of
                     Join pid ->
                         selectCoinsForJoin
@@ -431,8 +431,9 @@ server byron icarus shelley multisig spl drepLayer ntp blockchainSource dappBack
                             (getPoolLifeCycleStatus spl)
                             (getApiT pid)
                             (getApiT wid)
+                            reservedInputs
                     Quit ->
-                        selectCoinsForQuit shelley wid
+                        selectCoinsForQuit shelley wid reservedInputs
         )
 
     shelleyTransactions :: Server (ShelleyTransactions n)

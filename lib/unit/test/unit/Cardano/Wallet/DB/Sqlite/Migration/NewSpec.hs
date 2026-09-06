@@ -18,8 +18,7 @@ import Cardano.Wallet.DB.Migration
     , Version (..)
     )
 import Cardano.Wallet.DB.Sqlite.Migration.New
-    ( latestVersion
-    , newMigrationInterface
+    ( newMigrationInterface
     , runNewStyleMigrations
     )
 import Control.Tracer
@@ -67,16 +66,18 @@ import qualified Database.Persist.Sqlite as Sqlite
 spec :: Spec
 spec = do
     describe "new migrations" $ do
-        it "targets durable-submission schema version six"
-            $ latestVersion `shouldBe` Version 6
-        it "backs up V5 and commits the durable-submission V6 schema" $
+        it "backs up V5 and migrates shared spending/collateral claims" $
             withSystemTempDirectory "test" $ \dir -> do
                 let dbf = dir <> "/wallet.sqlite"
                 createV5Database dbf False
                 v5 <- BS.readFile dbf
                 runNewStyleMigrations nullTracer dbf
                 schemaVersion dbf `shouldReturn` 6
-                durableSubmissionTableCount dbf `shouldReturn` 1
+                claims <- Sqlite.runSqlite (T.pack dbf) $
+                    Sqlite.rawSql
+                        "SELECT source_tx_id, source_index FROM dapp_submission_input WHERE active = 1"
+                        []
+                claims `shouldBe` [(Sqlite.Single $ T.replicate 32 "11", Sqlite.Single (0 :: Int))]
                 BS.readFile (dbf <> ".v5.bak") `shouldReturn` v5
         it "rolls back malformed V5 submissions and leaves a restorable backup" $
             withSystemTempDirectory "test" $ \dir -> do
@@ -183,13 +184,14 @@ createV5Database dbf malformedLiveSubmission =
         Sqlite.rawExecute
             "CREATE TABLE submissions (wallet_id TEXT NOT NULL, tx_id TEXT NOT NULL, tx BLOB NOT NULL, expiration INTEGER NULL, status INTEGER NOT NULL, acceptance INTEGER NULL)"
             []
+        Sqlite.rawExecute "INSERT INTO wallet (wallet_id) VALUES ('00')" []
         if malformedLiveSubmission
-            then do
-                Sqlite.rawExecute "INSERT INTO wallet (wallet_id) VALUES ('00')" []
-                Sqlite.rawExecute
-                    "INSERT INTO submissions (wallet_id, tx_id, tx, expiration, status, acceptance) VALUES ('00', '00', X'00', NULL, 0, NULL)"
-                    []
-            else pure ()
+            then Sqlite.rawExecute
+                "INSERT INTO submissions (wallet_id, tx_id, tx, expiration, status, acceptance) VALUES ('00', '00', X'00', NULL, 0, NULL)"
+                []
+            else Sqlite.rawExecute
+                "INSERT INTO submissions (wallet_id, tx_id, tx, expiration, status, acceptance) VALUES ('00', '309bcb04da03b16436e65709c2e5ad2d75a1ebfec3c0b328e0a7a7e10b398aae', X'84a40081825820111111111111111111111111111111111111111111111111111111111111111100018182581d60aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1a000f424002000d81825820111111111111111111111111111111111111111111111111111111111111111100a0f5f6', NULL, 0, NULL)"
+                []
 
 schemaVersion :: FilePath -> IO Int
 schemaVersion dbf = do

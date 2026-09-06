@@ -66,11 +66,12 @@ import Cardano.Wallet.Api.Http.Shelley.Server
     , validateDataSignRequest
     )
 import Cardano.Wallet.Api.Http.Shelley.TransactionContext
-    ( DecodedTx (txId, valid)
+    ( DecodedTx (collateral, normal, txId, valid)
     , ProofInventory (..)
     , ProofObligation (DirectProofObligation, NativeProofObligation)
     , ProofObligationResult (..)
     , candidateOwnershipAssociations
+    , contextSets
     , decodeDappTx
     , decodeTx
     , dependencySource
@@ -156,6 +157,16 @@ import qualified Cardano.Ledger.Keys as LedgerKeys
 main :: IO ()
 main = hspec $ do
     describe "revision-1 transaction context" $ do
+        it "accepts a read-only snapshot without permitting an empty signing batch" $ do
+            decodeRequest
+                "{\"revision\":1,\"network\":{\"network_id\":0,\"network_magic\":1,\"genesis_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\"},\"transactions\":[]}"
+                `shouldSatisfy` isRight
+            decodeDappWitnessSignRequest (validWitnessRequest [])
+                `shouldSatisfy` isLeft
+            validateTransactionContextResponseForRequest
+                (ApiDappTransactionContextRequest 1 dappNetwork [])
+                (validDappWitnessContext [])
+                `shouldSatisfy` isRight
         it "strictly validates the closed request schema" $ do
             decodeRequest validRequest `shouldSatisfy` isRight
             mapM_
@@ -357,11 +368,11 @@ main = hspec $ do
 
         describe "DAPP_WITNESS_SIGNING" $ do
             it "accepts collateral-only and explicit required-signer proofs" $ do
-                let collateral = evaluateObligation mempty (Set.singleton proofHash)
+                let collateralProof = evaluateObligation mempty (Set.singleton proofHash)
                         $ DirectProofObligation 0 CollateralProof proofHash
                     requiredSignerProof = evaluateObligation mempty (Set.singleton proofHash)
                         $ DirectProofObligation 1 RequiredSignerProof proofHash
-                collateral.satisfied `shouldBe` True
+                collateralProof.satisfied `shouldBe` True
                 requiredSignerProof.satisfied `shouldBe` True
 
             it "permits incomplete partial items but rejects an atomic batch failure" $ do
@@ -391,6 +402,18 @@ main = hspec $ do
                 )
                 (error "duplicate rejection must not inspect the response")
                 `shouldBe` Left "duplicate transaction envelopes differ"
+
+        it "preserves shared spending/collateral inputs and their pending claim" $ do
+            let transaction = hex
+                    "84a40081825820111111111111111111111111111111111111111111111111111111111111111100018182581d60aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1a000f424002000d81825820111111111111111111111111111111111111111111111111111111111111111100a0f5f6"
+            fmap
+                (\tx ->
+                    ( Set.size tx.normal
+                    , tx.normal == tx.collateral
+                    , contextSets tx.normal [tx] [] == (Set.empty, tx.normal, Set.empty)
+                    ))
+                (decodeDappTx $ ApiDappHex transaction)
+                `shouldBe` Right (1, True, True)
 
         it "recognizes supported Conway certificate constructors" $ do
             let stakeCredential = KeyHashObj $ coerce $ witnessKeyHash proofHash

@@ -70,6 +70,9 @@ import Cryptography.Hash.Core
 import Data.Quantity
     ( Quantity (..)
     )
+import Database.Persist.Sql
+    ( rawExecute
+    )
 import System.Random
     ( Random
     )
@@ -97,12 +100,14 @@ spec = do
         describe "submissions via API for a single wallet store" $ do
             it "respects store laws"
                 $ property . prop_SingleWalletStoreLawsOperations
-            it "classifies exact replay and releases a conflicting claim" $ \db -> do
+            it "locks shared inputs once while preserving replay and conflict handling" $ \db -> do
                 let wid = WalletId $ hash @BS.ByteString "submission-test-wallet"
                     tx1 = TxId $ Hash $ BS.replicate 32 1
                     tx2 = TxId $ Hash $ BS.replicate 32 2
                     source = TxId $ Hash $ BS.replicate 32 3
                     claim = DurableSubmissionInput source 0 NormalInputE
+                    collateral = DurableSubmissionInput source 0 CollateralInputE
+                    shared = [claim, collateral]
                     submission tx sealed =
                         DurableSubmission
                             wid
@@ -118,14 +123,18 @@ spec = do
                             Nothing
                 outcomes <- runQuery db $ do
                     initializeWalletTable wid
+                    rawExecute
+                        "CREATE UNIQUE INDEX IF NOT EXISTS dapp_submission_claim ON dapp_submission_input \
+                        \(wallet_id, source_tx_id, source_index) WHERE active = 1"
+                        []
                     invalid <-
                         insertOrClassifyDurableSubmission
                             (submission tx1 "one")
                             [claim, claim]
                     empty <- length <$> readDurableSubmissions wid
-                    first <- insertOrClassifyDurableSubmission (submission tx1 "one") [claim]
-                    replay <- insertOrClassifyDurableSubmission (submission tx1 "one") [claim]
-                    conflict <- insertOrClassifyDurableSubmission (submission tx2 "two") [claim]
+                    first <- insertOrClassifyDurableSubmission (submission tx1 "one") shared
+                    replay <- insertOrClassifyDurableSubmission (submission tx1 "one") (reverse shared)
+                    conflict <- insertOrClassifyDurableSubmission (submission tx2 "two") [collateral]
                     updateDurableSubmission
                         (submission tx1 "one")
                             { durableAuthorized = False
@@ -197,7 +206,8 @@ spec = do
                             { durableStatus = OutcomeUnknownE
                             , durableBroadcastStarted = Nothing
                             }
-                    durableStatus . head <$> readDurableSubmissions wid
+                    [stored] <- readDurableSubmissions wid
+                    pure $ durableStatus stored
                 status `shouldBe` OutcomeUnknownE
 
 deriving instance Random SlotNo

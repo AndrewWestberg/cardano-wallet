@@ -922,14 +922,16 @@ data ApiSelectCoinsPayments (n :: NetworkDiscriminant) = ApiSelectCoinsPayments
     { payments :: NonEmpty (ApiTxOutput n)
     , withdrawal :: !(Maybe ApiWithdrawalPostData)
     , metadata :: !(Maybe (ApiT TxMetadata))
+    , preferredCollateral :: !(Maybe [ApiT TxIn])
     }
     deriving (Eq, Generic, Show)
     deriving
         (FromJSON, ToJSON)
         via DefaultRecord (ApiSelectCoinsPayments n)
 
-newtype ApiSelectCoinsAction = ApiSelectCoinsAction
+data ApiSelectCoinsAction = ApiSelectCoinsAction
     { delegationAction :: ApiDelegationAction
+    , preferredCollateral :: !(Maybe [ApiT TxIn])
     }
     deriving (Eq, Generic)
     deriving (FromJSON, ToJSON) via DefaultRecord ApiSelectCoinsAction
@@ -1065,8 +1067,9 @@ data ApiWalletDelegationStatus
     deriving (FromJSON, ToJSON) via DefaultSum ApiWalletDelegationStatus
     deriving anyclass (NFData)
 
-newtype ApiWalletPassphrase = ApiWalletPassphrase
+data ApiWalletPassphrase = ApiWalletPassphrase
     { passphrase :: ApiT (Passphrase "lenient")
+    , preferredCollateral :: !(Maybe [ApiT TxIn])
     }
     deriving (Eq, Generic)
     deriving (FromJSON, ToJSON) via DefaultRecord ApiWalletPassphrase
@@ -1322,6 +1325,7 @@ data ApiConstructTransactionData (n :: NetworkDiscriminant)
     , validityInterval :: !(Maybe ApiValidityInterval)
     , referencePolicyScriptTemplate :: !(Maybe (ApiT (Script Cosigner)))
     , encoding :: !(Maybe ApiSealedTxEncoding)
+    , preferredCollateral :: !(Maybe [ApiT TxIn])
     }
     deriving (Eq, Generic, Show)
     deriving
@@ -1389,6 +1393,7 @@ data PostTransactionOldData (n :: NetworkDiscriminant) = PostTransactionOldData
     , withdrawal :: !(Maybe ApiWithdrawalPostData)
     , metadata :: !(Maybe TxMetadataWithSchema)
     , timeToLive :: !(Maybe (Quantity "second" NominalDiffTime))
+    , preferredCollateral :: !(Maybe [ApiT TxIn])
     }
     deriving (Eq, Generic, Show)
     deriving
@@ -1402,6 +1407,7 @@ data PostTransactionFeeOldData (n :: NetworkDiscriminant)
     , withdrawal :: !(Maybe ApiWithdrawalPostData)
     , metadata :: !(Maybe TxMetadataWithSchema)
     , timeToLive :: !(Maybe (Quantity "second" NominalDiffTime))
+    , preferredCollateral :: !(Maybe [ApiT TxIn])
     }
     deriving (Eq, Generic, Show)
     deriving

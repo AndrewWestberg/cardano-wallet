@@ -549,8 +549,9 @@ instance FromJSON ApiDappTransactionContextRequest where
         result@ApiDappTransactionContextRequest{revision, transactions} <-
             genericParseJSON strictRecordTypeOptions value
         unless (revision == 1) $ fail "revision must be 1"
-        unless (length transactions >= 1 && length transactions <= 50)
-            $ fail "transactions must contain 1 to 50 entries"
+        -- An empty list requests a read-only wallet snapshot.
+        unless (length transactions <= 50)
+            $ fail "transactions must contain at most 50 entries"
         mapM_ (requireLengthBetween "transaction" 1 65536) transactions
         pure result
 
@@ -1122,8 +1123,8 @@ computeContextDigest
         } = do
         requireBytes "wallet id" walletId
         requireByteLength "genesis hash" 32 genesisHash
-        unless (length transactions >= 1 && length transactions <= 50)
-            $ Left "transactions must contain 1 to 50 entries"
+        unless (length transactions <= 50)
+            $ Left "transactions must contain at most 50 entries"
         mapM_ (requireByteLengthBetween "transaction" 1 65536) transactions
         canonicalRecords <- canonicalContextRecords records
         point <- encodeChainPoint chainPoint

@@ -206,20 +206,26 @@ insertOrClassifyDurableSubmission
     -> SqlPersistT IO DurableSubmissionInsert
 insertOrClassifyDurableSubmission submission@DurableSubmission{..} inputs = do
     let requestedInputs = sort inputs
+        -- One active lock per outpoint; exact roles remain in the sealed transaction.
+        claims = Map.elems $ Map.fromListWith min
+            [ ((durableInputTxId input, durableInputIndex input), input)
+            | input <- requestedInputs
+            ]
     existing <- selectList [DappSubmissionWallet ==. durableWalletId, DappSubmissionTxId ==. durableTxId] []
     case existing of
         [Entity _ stored] -> do
             storedInputs <- readDurableInputs durableWalletId durableTxId
             pure
                 $ if sameDurableIdentity stored submission
-                        && sort storedInputs == requestedInputs
+                        && requestedInputs == nub requestedInputs
+                        && sort storedInputs == claims
                     then DurableSubmissionReplay (durableFromRow stored)
                     else DurableSubmissionIdentityConflict
         []
             | length requestedInputs /= length (nub requestedInputs) ->
                 pure DurableSubmissionInputConflict
             | otherwise -> do
-                claimed <- fmap concat $ mapM claimOwners requestedInputs
+                claimed <- fmap concat $ mapM claimOwners claims
                 if null claimed
                     then do
                         _ <- insert
@@ -235,7 +241,7 @@ insertOrClassifyDurableSubmission submission@DurableSubmission{..} inputs = do
                                 durableBroadcastStarted
                                 durableAcceptance
                                 durableRejectionCode
-                        forM_ requestedInputs $ \DurableSubmissionInput{..} ->
+                        forM_ claims $ \DurableSubmissionInput{..} ->
                             insert
                                 $ DappSubmissionInput
                                     durableWalletId

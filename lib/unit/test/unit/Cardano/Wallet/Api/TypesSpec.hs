@@ -2295,6 +2295,7 @@ instance HasSNetworkId n => Arbitrary (PostTransactionOldData n) where
             <*> elements [Just SelfWithdrawal, Nothing]
             <*> arbitrary
             <*> arbitrary
+            <*> arbitrary
 
 instance Arbitrary TxMetadataWithSchema where
     arbitrary =
@@ -2366,6 +2367,7 @@ instance HasSNetworkId n => Arbitrary (ApiConstructTransactionData n) where
             <*> pure Nothing
             <*> pure Nothing
             <*> elements [Just HexEncoded, Just Base64Encoded, Nothing]
+            <*> arbitrary
 
 instance HasSNetworkId n => Arbitrary (ApiExternalInput n) where
     arbitrary =
@@ -2704,6 +2706,7 @@ instance HasSNetworkId n => Arbitrary (PostTransactionFeeOldData n) where
         PostTransactionFeeOldData
             <$> arbitrary
             <*> elements [Just SelfWithdrawal, Nothing]
+            <*> arbitrary
             <*> arbitrary
             <*> arbitrary
 

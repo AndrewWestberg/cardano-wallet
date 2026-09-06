@@ -52,6 +52,7 @@ import Prelude
 import qualified Cardano.Wallet.Read as Read
 import qualified Data.Text as T
 import qualified Data.ByteString as BS
+import qualified Data.Set as Set
 
 import qualified Database.Sqlite as Sqlite
 
@@ -106,13 +107,18 @@ insertLiveClaims conn walletId submissionId bytes = do
     sealed <- either (fail . show) pure $ sealedTxFromBytes bytes
     let tx = case unsafeReadTx sealed of
             Read.EraValue readTx -> walletTx $ getTxExtended readTx
+        normal = Set.fromList $ fst <$> resolvedInputs tx
     if toText (txId tx) /= submissionId
         then fail "V5 submission transaction id does not match its sealed body"
         else do
             forM_ (resolvedInputs tx) $ \(txIn, _) ->
                 insertClaim conn walletId submissionId 0 txIn
-            forM_ (resolvedCollateralInputs tx) $ \(txIn, _) ->
-                insertClaim conn walletId submissionId 1 txIn
+            forM_
+                [ input
+                | (input, _) <- resolvedCollateralInputs tx
+                , input `Set.notMember` normal
+                ]
+                $ insertClaim conn walletId submissionId 1
 
 insertClaim :: Sqlite.Connection -> Text -> Text -> Int -> TxIn -> IO ()
 insertClaim conn walletId submissionId role TxIn{inputId, inputIx} =

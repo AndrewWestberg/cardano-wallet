@@ -421,8 +421,6 @@ captureContext worker =
             pending <-
                 first (const DappContextUnavailableError)
                     $ mapM decodeDurable (filter hasLiveClaim durable)
-            requireEither DappContextUnavailableError
-                $ all noNormalCollateralOverlap pending
             checkpoint <-
                 Set.fromList
                     <$> first
@@ -502,7 +500,7 @@ decodeDappTx :: ApiDappHex -> Either DappError DecodedTx
 decodeDappTx value@(ApiDappHex bytes) =
     case decodeTx value of
         Right decoded -> do
-            requireEither InvalidDappRequest $ noNormalCollateralOverlap decoded
+            -- Spending and collateral are alternative ledger paths and may overlap.
             requireEither InvalidDappRequest decoded.valid
             requireEither InvalidDappRequest $ supportedCredentialSurfaces decoded
             Right decoded
@@ -520,9 +518,6 @@ decodeDappTx value@(ApiDappHex bytes) =
         CertificateOther GenesisCertificate -> True
         CertificateOther MIRCertificate -> True
         _ -> False
-
-noNormalCollateralOverlap :: DecodedTx -> Bool
-noNormalCollateralOverlap DecodedTx{normal, collateral} = Set.disjoint normal collateral
 
 validVKeyWitnessHashes :: Read.Tx Read.Conway -> Set ByteString
 validVKeyWitnessHashes (Read.Tx ledgerTx) = Set.fromList
