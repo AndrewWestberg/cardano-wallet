@@ -72,7 +72,7 @@ spec = do
                 createV5Database dbf False
                 v5 <- BS.readFile dbf
                 runNewStyleMigrations nullTracer dbf
-                schemaVersion dbf `shouldReturn` 6
+                schemaVersion dbf `shouldReturn` 7
                 claims <- Sqlite.runSqlite (T.pack dbf) $
                     Sqlite.rawSql
                         "SELECT source_tx_id, source_index FROM dapp_submission_input WHERE active = 1"

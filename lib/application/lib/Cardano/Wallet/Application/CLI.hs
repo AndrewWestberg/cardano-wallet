@@ -707,6 +707,7 @@ cmdWalletCreateFromMnemonic mkClient =
                 (ApiT wName)
                 (ApiT wPwd)
                 Nothing
+                Nothing
                 (Just $ ApiT rm)
 
 restorationModeOption :: Parser (RestorationMode -> a) -> Parser a
@@ -796,6 +797,7 @@ cmdWalletCreateFromPublicKey mkClient =
                 wAccPubKey
                 (Just $ ApiT wGap)
                 Nothing
+                Nothing
 
 -- | Arguments for 'wallet get' command
 data WalletGetArgs = WalletGetArgs
@@ -867,7 +869,7 @@ cmdWalletUpdateName mkClient =
             $ putWallet
                 mkClient
                 (ApiT wId)
-                (ApiWalletPutDataExtended (Just (ApiT wName)) Nothing)
+                (ApiWalletPutDataExtended (Just (ApiT wName)) Nothing Nothing)
 
 data UpdatePassphraseCredential
     = MnemonicCredentials
