@@ -146,6 +146,7 @@ test-suite dapp-context
   main-is:            dapp-context-test.hs
   ghc-options:        -Wall
   build-depends:
+    , address-derivation-discovery
     , aeson
     , base
     , binary
@@ -154,9 +155,12 @@ test-suite dapp-context
     , cardano-ledger-allegra
     , cardano-ledger-core
     , cardano-ledger-conway
+    , cardano-ledger-read
     , cardano-strict-containers
     , cardano-wallet-api
     , cardano-wallet
+    , cardano-wallet-primitive
+    , cardano-wallet-read
     , cardano-wallet-secrets
     , containers
     , crypto-primitives

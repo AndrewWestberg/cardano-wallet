@@ -116,6 +116,7 @@ import Cardano.Ledger.Api.UTxO
 import Cardano.Ledger.BaseTypes
     ( Network (Mainnet, Testnet)
     , ProtVer (ProtVer)
+    , StrictMaybe (SJust, SNothing)
     , TxIx (TxIx)
     )
 import Cardano.Ledger.Hashes
@@ -141,6 +142,10 @@ import Cardano.Read.Ledger.Tx.Output
 import Cardano.Read.Ledger.Tx.ReferenceInputs
     ( ReferenceInputs (ReferenceInputs)
     , getEraReferenceInputs
+    )
+import Cardano.Read.Ledger.Tx.CollateralOutputs
+    ( CollateralOutputs (..)
+    , getEraCollateralOutputs
     )
 import Cardano.Wallet.Primitive.Ledger.Read.Tx.Features.Certificates
     ( getCertificates
@@ -732,7 +737,7 @@ paymentOwnership
     :: forall n
      . HasSNetworkId n
     => SeqState n ShelleyKey
-    -> [(ByteString, ApiDappContextOutput, Output Read.Conway)]
+    -> [([ApiDappRole], Output Read.Conway)]
     -> Either DappError (SeqState n ShelleyKey, [ApiDappOwnership])
 paymentOwnership initial values =
     fmap (\(discovery, found) -> (discovery, sort $ Map.elems found))
@@ -746,14 +751,16 @@ paymentOwnership initial values =
         :: ( SeqState n ShelleyKey
            , Map (ByteString, ApiDappOwnershipKind, [Word32]) ApiDappOwnership
            )
-        -> (ByteString, ApiDappContextOutput, Output Read.Conway)
+        -> ([ApiDappRole], Output Read.Conway)
         -> Either DappError
             ( SeqState n ShelleyKey
             , Map (ByteString, ApiDappOwnershipKind, [Word32]) ApiDappOwnership
             )
-    classify (discovery, found) (_, ApiDappContextOutput{roles}, Output ledgerOutput) =
+    classify state@(discovery, found) (roles, Output ledgerOutput) =
         case ledgerOutput ^. addrTxOutL of
-            AddrBootstrap{} -> Left InvalidDappRequest
+            AddrBootstrap{}
+                | null roles -> pure state
+                | otherwise -> Left InvalidDappRequest
             address@(Addr _ credential _) -> case credential of
                 ScriptHashObj (Ledger.ScriptHash hash) ->
                     pure (discovery, insert (Crypto.hashToBytes hash) ScriptOwned [] [] found)
@@ -812,7 +819,10 @@ buildProofInventory
     -> [(ByteString, ApiDappContextOutput, Output Read.Conway)]
     -> Either DappError ProofInventory
 buildProofInventory configured discovery requested resolved = do
-    (discoveryAfterPayment, payment) <- paymentOwnership discovery resolved
+    (discoveryAfterPayment, payment) <-
+        paymentOwnership discovery
+            $ [ (value.roles, output) | (_, value, output) <- resolved ]
+                <> concatMap requestedOutputs requested
     let stake = stakeEvidence discovery requested
     (discoveryAfterSigners, signers) <- signerEvidence configured discoveryAfterPayment requested
     (native, nativeObligations) <- nativeEvidence configured discoveryAfterSigners requested resolved
@@ -822,6 +832,12 @@ buildProofInventory configured discovery requested resolved = do
     candidates <- mapM (uncurry $ candidateFromOwnership discovery)
         $ candidateOwnershipAssociations obligations ownership
     proofInventory requested obligations candidates ownership
+  where
+    requestedOutputs DecodedTx{transaction, outputs} =
+        [([], output) | (output, _) <- Map.elems outputs]
+            <> case getEraCollateralOutputs transaction of
+                CollateralOutputs SNothing -> []
+                CollateralOutputs (SJust output) -> [([], Output output)]
 
 buildReviewedProofInventory
     :: [DecodedTx]

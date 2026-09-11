@@ -1,8 +1,11 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
+{-# LANGUAGE TypeApplications #-}
 module Main (main) where
 
 
@@ -19,6 +22,7 @@ import Cardano.Wallet.Api.Types.Dapp.Context
     ( ApiDappBatchOverlay (..)
     , ApiDappChainPoint (..)
     , ApiDappContextNetwork (..)
+    , ApiDappContextOutput (..)
     , ApiDappDataSignRequest (..)
     , ApiDappDataSignResponse (..)
     , ApiDappHex (..)
@@ -70,6 +74,7 @@ import Cardano.Wallet.Api.Http.Shelley.TransactionContext
     , ProofInventory (..)
     , ProofObligation (DirectProofObligation, NativeProofObligation)
     , ProofObligationResult (..)
+    , buildProofInventory
     , candidateOwnershipAssociations
     , contextSets
     , decodeDappTx
@@ -83,6 +88,39 @@ import Cardano.Wallet.Api.Http.Shelley.TransactionContext
     , validatePendingProvenance
     , validateTransactionContextResponseForRequest
     )
+import Cardano.Read.Ledger.Tx.Output
+    ( Output
+    , deserializeOutput
+    )
+import qualified Cardano.Wallet.Address.Derivation.Shelley as Shelley
+import Cardano.Wallet.Address.Discovery
+    ( ChangeAddressMode (IncreasingChangeAddresses)
+    , KnownAddresses (knownAddresses)
+    )
+import Cardano.Wallet.Address.Discovery.Sequential
+    ( SeqState
+    , mkAddressPoolGap
+    , purposeCIP1852
+    )
+import Cardano.Wallet.Address.Keys.SequentialAny
+    ( mkSeqStateFromRootXPrv
+    )
+import Cardano.Wallet.Flavor
+    ( KeyFlavorS (ShelleyKeyS)
+    )
+import Cardano.Wallet.Primitive.NetworkId
+    ( NetworkDiscriminant (Mainnet)
+    )
+import Cardano.Wallet.Primitive.Types.Address
+    ( Address (Address)
+    )
+import Cardano.Wallet.Primitive.Types.Credentials
+    ( RootCredentials (RootCredentials)
+    )
+import Cardano.Wallet.Unsafe
+    ( someDummyMnemonic
+    )
+import qualified Cardano.Wallet.Read as Read
 import Cardano.Ledger.Allegra.Scripts
     ( ValidityInterval (..)
     , mkRequireAllOfTimelock
@@ -131,6 +169,9 @@ import Data.Text
 import Servant.Server
     ( ServerError (errBody, errHTTPCode)
     )
+import Data.Proxy
+    ( Proxy (Proxy)
+    )
 import Test.Hspec
     ( describe
     , hspec
@@ -167,6 +208,20 @@ main = hspec $ do
                 (ApiDappTransactionContextRequest 1 dappNetwork [])
                 (validDappWitnessContext [])
                 `shouldSatisfy` isRight
+        it "classifies requested outputs without adding signer proofs" $ do
+            let ownAddress = case knownAddresses reviewDiscovery of
+                    (Address address, _, _) : _ -> address
+                    [] -> error "review discovery has no addresses"
+                cases =
+                    [ (BS.cons 0x61 $ BS.replicate 28 0xcc, Unowned)
+                    , (BS.cons 0x71 $ BS.replicate 28 0xbb, ScriptOwned)
+                    , (ownAddress, OwnedKey)
+                    ]
+            forM_ cases $ \(address, expected) ->
+                outputOnlyOwnership address
+                    `shouldSatisfy` elem (expected, [])
+        it "keeps a requested Byron destination accepted and unclassified" $ do
+            outputOnlyOwnership byronAddress `shouldBe` []
         it "strictly validates the closed request schema" $ do
             decodeRequest validRequest `shouldSatisfy` isRight
             mapM_
@@ -990,6 +1045,75 @@ hex =
     either (error . show) id
         . BAE.convertFromBase BAE.Base16
         . T.encodeUtf8
+
+reviewDiscovery :: SeqState 'Mainnet Shelley.ShelleyKey
+reviewDiscovery =
+    mkSeqStateFromRootXPrv
+        ShelleyKeyS
+        ( RootCredentials
+            (Shelley.unsafeGenerateKeyFromSeed (someDummyMnemonic $ Proxy @12, Nothing) mempty)
+            mempty
+        )
+        purposeCIP1852
+        (either (error . show) id $ mkAddressPoolGap 20)
+        IncreasingChangeAddresses
+
+outputOnlyOwnership :: ByteString -> [(ApiDappOwnershipKind, [ApiDappProofKind])]
+outputOnlyOwnership address =
+    [ (ownership, proofKinds)
+    | ApiDappOwnership
+        { ownership
+        , proofKinds
+        } <- ownershipEvidence inventory
+    , null proofKinds
+    ]
+  where
+    requested = either error pure $ decodeTx $ ApiDappHex $ transactionTo address
+    inventory =
+        either (error . show) id
+            $ buildProofInventory dappNetwork reviewDiscovery requested [resolvedInput]
+
+resolvedInput :: (ByteString, ApiDappContextOutput, Output Read.Conway)
+resolvedInput =
+    ( ""
+    , ApiDappContextOutput
+        { outpoint = ApiDappOutpoint (ApiDappHex $ BS.replicate 32 0x11) 0
+        , transactionInputCbor = ApiDappHex ""
+        , sourceTransactionOutputCbor = ApiDappHex source
+        , canonicalTransactionOutputCbor = ApiDappHex source
+        , transactionUnspentOutputCbor = ApiDappHex ""
+        , provenance = [Node]
+        , roles = [Normal]
+        , walletMember = False
+        , pendingState = None
+        }
+    , either (error . show) id $ deserializeOutput $ BL8.fromStrict source
+    )
+  where
+    source = hex "82581d61aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1a000f4240"
+
+transactionTo :: ByteString -> ByteString
+transactionTo address =
+    BS.concat
+        [ hex "84a30081825820"
+        , BS.replicate 32 0x11
+        , hex "00018182"
+        , encodeBytes address
+        , hex "1a000f42400200a0f5f6"
+        ]
+
+encodeBytes :: ByteString -> ByteString
+encodeBytes bytes
+    | BS.length bytes < 24 =
+        BS.cons (0x40 + fromIntegral (BS.length bytes)) bytes
+    | BS.length bytes <= 255 =
+        BS.pack [0x58, fromIntegral $ BS.length bytes] <> bytes
+    | otherwise = error "test address is too long"
+
+byronAddress :: ByteString
+byronAddress =
+    hex
+        "82d818584283581ca08bcb9e5e8cd30d5aea6d434c46abd8604fe4907d56b9730ca28ce5a101581e581c22e25f2464ec7295b556d86d0ec33bc1a681e7656da92dbc0582f5e4001a3abe2aa5"
 
 isLeft :: Either a b -> Bool
 isLeft = either (const True) (const False)
